@@ -34,6 +34,8 @@ TOP_UP = 0.2
 
 CONNECTOR_WIDTH = 15
 CONNECTOR_DEPTH = 8
+CONNECTOR_HEIGHT = CLIP_DROP
+CONNECTOR_INTERFACE_D = 22.5
 
 INTERFACE_MARGIN = 0.3
 
@@ -130,23 +132,29 @@ def spacer(txt=""):
     return o
 
 
-def interface(wall=0):
+def interface(wall=0, extraheight=0):
     """The interface for the main rail clip"""
     h = 15
     conn = translate(
         [
             -CONNECTOR_DEPTH + INTERFACE_MARGIN - wall,
-            -CLIP_DROP + 0.01 + INTERFACE_MARGIN,
+            -CLIP_DROP - extraheight + 0.01 + INTERFACE_MARGIN,
             0,
         ]
     )(
         cube(
-            [CONNECTOR_DEPTH - INTERFACE_MARGIN + wall, CLIP_DROP - INTERFACE_MARGIN, h]
+            [
+                CONNECTOR_DEPTH - INTERFACE_MARGIN + wall,
+                CLIP_DROP + extraheight - INTERFACE_MARGIN,
+                h,
+            ]
         )
     )
     conn -= hole()(
         translate([-CONNECTOR_DEPTH - wall, 1, h / 2])(
-            rotate([90, 90, 0])(connector(CLIP_DROP + 2, -INTERFACE_MARGIN))
+            rotate([90, 90, 0])(
+                connector(CLIP_DROP + extraheight + 2, -INTERFACE_MARGIN)
+            )
         )
     )
     return conn
@@ -537,6 +545,162 @@ def renderinsert(partinsertsections=False, deepparts=False):
     saveasscad(o, fnbase + VER, fn=300)
 
 
+def roundedCube(x, y, z, r):
+    "Return a cube with rounded vertical corners"
+    corners = [
+        translate([r, r, 0])(cylinder(r=r, h=z)),
+        translate([x - r, r, 0])(cylinder(r=r, h=z)),
+        translate([r, y - r, 0])(cylinder(r=r, h=z)),
+        translate([x - r, y - r, 0])(cylinder(r=r, h=z)),
+    ]
+    return hull()(*corners)
+
+
+CARD_VER = "v1.2"
+TEXT_DEPTH = 0.4
+
+
+def rendercardholder(stackwidth, stackdepth, stackheight, count):
+    """Render a card holder to be connected to a pair of clips
+
+    stackwidth: The width of a card container section (dimension that runs away
+                from the table)
+    stackdepth: The depth of a card container section (dimension that runs parallel
+                to the edge of the table, same dimension as count)
+    stackheight: The height of the container for the cards.
+    count:  The number of container sections, the same dimension as the stackdepth
+    """
+
+    FLOOR = 1.4
+    WALL = 1.5
+    ARM_H = 5
+    SUPPORT_W = 3
+    R = 5  # Radius of cube curves
+
+    totaldepth = stackdepth * count + WALL * (count + 1)
+
+    armlength = TABLE_OVERHANG + 10 - CONNECTOR_INTERFACE_D
+
+    # Clip interface and back wall
+    o = rotate([-90, 0, 0])(interface(extraheight=-1))
+    o += translate([0, totaldepth - CONNECTOR_WIDTH, 0])(
+        rotate([-90, 0, 0])(interface(extraheight=-1))
+    )
+    o += cube([WALL, totaldepth, CONNECTOR_HEIGHT - 1])
+
+    # Arms and supports
+    arm = cube([armlength + R, CONNECTOR_WIDTH, ARM_H])
+    # support is a simple 45° cutout
+    support_x = armlength - WALL
+    support_h = min(stackheight + FLOOR, CONNECTOR_HEIGHT - 1) - ARM_H * 2
+    shortestedge = min(support_x / 2, support_h)
+
+    # shortestsupport = min((armlength - WALL) / 2, support_h - ARM_H)
+    # xturn = (armlength - WALL - shortestsupport) / 2
+    # supportmiddle = armlength / 2 + WALL
+    # supporttop = min(shortestsupport, support_h - ARM_H)
+    arm += translate([0, SUPPORT_W / 2 + CONNECTOR_WIDTH / 2, 0])(
+        rotate([90, 0, 0])(
+            linear_extrude(height=SUPPORT_W)(
+                polygon(
+                    # [
+                    #     [WALL, ARM_H],
+                    #     [WALL + shortestedge, ARM_H],
+                    #     [WALL + shortestedge, ARM_H + shortestedge],
+                    #     [WALL, ARM_H + shortestedge],
+                    # ]
+                    [
+                        [WALL, ARM_H],
+                        [WALL + support_x / 2 - shortestedge, ARM_H],
+                        [WALL + support_x / 2, ARM_H + min(support_h, shortestedge)],
+                        [WALL + support_x / 2 + shortestedge, ARM_H],
+                        [armlength + R, ARM_H],
+                        [armlength + R, ARM_H * 2 + support_h],
+                        [WALL, ARM_H * 2 + support_h],
+                    ]
+                )
+            )
+        )
+    )
+
+    o += arm
+    o += translate([0, totaldepth - CONNECTOR_WIDTH, 0])(arm)
+
+    # Include version in arm
+    o -= translate([armlength / 2, CONNECTOR_WIDTH / 2, -0.1])(
+        mirror([1, 0, 0])(
+            linear_extrude(TEXT_DEPTH + 0.1)(
+                text(
+                    CARD_VER,
+                    5,
+                    font="Arial:style=Bold",
+                    valign="center",
+                    halign="center",
+                )
+            )
+        )
+    )
+    configtxt = f"{stackwidth},{stackdepth},{stackheight},{count}"
+    o -= translate([armlength / 2, totaldepth - CONNECTOR_WIDTH / 2, -0.1])(
+        mirror([1, 0, 0])(
+            linear_extrude(TEXT_DEPTH + 0.1)(
+                text(
+                    configtxt,
+                    4,
+                    font="Arial:style=Bold",
+                    valign="center",
+                    halign="center",
+                )
+            )
+        )
+    )
+
+    # Card holder
+    print(f"Card Cube Size:", stackwidth + WALL * 2, totaldepth, stackheight + FLOOR)
+    print(
+        f"Print Size:",
+        stackwidth + WALL * 2 + CONNECTOR_DEPTH + armlength,
+        totaldepth,
+        stackheight + FLOOR,
+    )
+    o += translate([armlength, 0, 0])(
+        roundedCube(stackwidth + WALL * 2, totaldepth, stackheight + FLOOR, R)
+    )
+    for i in range(1, count - 1, 1):
+        o -= translate([armlength + WALL, WALL + (WALL + stackdepth) * i, FLOOR])(
+            cube([stackwidth, stackdepth, stackheight * 2])
+        )
+    # special handling of the first and last cutouts to match the rounded corners
+    o -= translate([armlength + WALL, WALL, FLOOR])(
+        roundedCube(stackwidth, stackdepth - R, stackheight * 2, R)
+    )
+    if count > 1:
+        o -= translate([armlength + WALL, WALL + R, FLOOR])(
+            cube([stackwidth, stackdepth - R, stackheight * 2])
+        )
+    o -= translate([armlength + WALL, totaldepth - WALL - stackdepth + R, FLOOR])(
+        roundedCube(stackwidth, stackdepth - R, stackheight * 2, R)
+    )
+    if count > 1:
+        o -= translate([armlength + WALL, totaldepth - WALL - stackdepth, FLOOR])(
+            cube([stackwidth, stackdepth - R, stackheight * 2])
+        )
+
+    return o
+
+
+def rendercardholders():
+    specs = [
+        # (71, 30, 40, 3),
+        (150, 200, 5, 1),
+    ]
+    for spec in specs:
+        saveasscad(
+            rendercardholder(*spec),
+            f"cardholder-{'_'.join([str(i) for i in spec])}-{CARD_VER}",
+        )
+
+
 # def renderinserttop():
 #     VER = "v0.91"
 #     INNER_D = 99
@@ -577,18 +741,20 @@ def renderspacer():
 
 
 def main():
-    renderspacer()
-    rendercupholder()
-    renderwineglassholder()
-    renderrailclip()
-    renderinsert()
-    renderinsert(2, True)
-    for i in [2, 3, 4, 5, 6]:
-        renderinsert(i)
+    # renderspacer()
+    # rendercupholder()
+    # renderwineglassholder()
+    # renderrailclip()
+    # renderinsert()
+    # renderinsert(2, True)
+    # for i in [2, 3, 4, 5, 6]:
+    #     renderinsert(i)
 
     # rendertestbracket()
     # renderinserttop()
     # rendertestconnectors()
+
+    rendercardholders()
 
 
 def sin(angle):
