@@ -445,12 +445,11 @@ def renderwineglassholder():
     saveasscad(rotate([180, 0, 0])(o), "wineglassholder-" + VER, fn=300)
 
 
-def renderinsert(partinsertsections=False, deepparts=False):
+# cupdepth: Original depth, plus enough to make it flat when stacked
+def renderinsert(partinsertsections=False, deepparts=False, cupdepth=40 + 5):
     """Insert for cups or components. If partinsertsections is set, a component
     organiser is generated with the given number of sections."""
-    VER = "v2.5"
-    # Original depth, plus enough to make it flat when stacked
-    CUP_DEPTH = 40 + 5
+    VER = "v2.6"
     FLOOR = 1.4
     WALL = 1.5
     THREAD_H = 8
@@ -461,21 +460,21 @@ def renderinsert(partinsertsections=False, deepparts=False):
 
     if partinsertsections:
         if not deepparts:
-            CUP_DEPTH = 10
+            cupdepth = 10
         FLOOR = 1.2
 
-    componentsheight = CUP_DEPTH + 3
+    componentsheight = cupdepth + 3
 
-    o = cylinder(d=INNER_D - THREAD_THICK, h=CUP_DEPTH + FLOOR - THREAD_H)
+    o = cylinder(d=INNER_D - THREAD_THICK, h=cupdepth + FLOOR - THREAD_H)
 
     TAPER_PCG = 0.7
     taper = rotate_extrude()(
         polygon(
             [
-                [INNER_D / 2 + WALL, CUP_DEPTH + FLOOR + WALL],
-                [INNER_D / 2 - WALL * TAPER_PCG, CUP_DEPTH + FLOOR],
-                [INNER_D / 2, CUP_DEPTH + FLOOR - WALL * TAPER_PCG],
-                [INNER_D / 2 + WALL, CUP_DEPTH + FLOOR - WALL * TAPER_PCG * 1.5],
+                [INNER_D / 2 + WALL, cupdepth + FLOOR + WALL],
+                [INNER_D / 2 - WALL * TAPER_PCG, cupdepth + FLOOR],
+                [INNER_D / 2, cupdepth + FLOOR - WALL * TAPER_PCG],
+                [INNER_D / 2 + WALL, cupdepth + FLOOR - WALL * TAPER_PCG * 1.5],
             ]
         )
     )
@@ -486,7 +485,7 @@ def renderinsert(partinsertsections=False, deepparts=False):
     if deepparts:
         rotating += 90
     o += rotate([0, 0, rotating])(
-        up(FLOOR + CUP_DEPTH - THREAD_H)(
+        up(FLOOR + cupdepth - THREAD_H)(
             metric_thread(
                 diameter=INNER_D + 1,
                 length=THREAD_H,
@@ -504,7 +503,7 @@ def renderinsert(partinsertsections=False, deepparts=False):
         cutout = componentsdiameter
     else:
         cutout = INNER_D - THREAD_THICK - WALL * 2
-    o -= up(FLOOR)(cylinder(d=cutout, h=CUP_DEPTH + FLOOR))
+    o -= up(FLOOR)(cylinder(d=cutout, h=cupdepth + FLOOR))
 
     if partinsertsections:
         o += gencomponentorganiser(
@@ -545,13 +544,22 @@ def renderinsert(partinsertsections=False, deepparts=False):
     saveasscad(o, fnbase + VER, fn=300)
 
 
-def roundedCube(x, y, z, r):
-    "Return a cube with rounded vertical corners"
+def roundedCube(x, y, z, r, oo=False, xo=False, oy=False, xy=False):
+    """Return a cube with rounded vertical corners
+
+    oo, xo, oy, xy, corners that should be sharp, in the order
+        origin, origin
+        x, origin
+        origin, y
+        x, y
+    """
+    round = cylinder(r=r, h=z)
+    sharp = translate([0, 0, z / 2])(cube([r * 2, r * 2, z], center=True))
     corners = [
-        translate([r, r, 0])(cylinder(r=r, h=z)),
-        translate([x - r, r, 0])(cylinder(r=r, h=z)),
-        translate([r, y - r, 0])(cylinder(r=r, h=z)),
-        translate([x - r, y - r, 0])(cylinder(r=r, h=z)),
+        translate([r, r, 0])(round if not oo else sharp),
+        translate([x - r, r, 0])(round if not xo else sharp),
+        translate([r, y - r, 0])(round if not oy else sharp),
+        translate([x - r, y - r, 0])(round if not xy else sharp),
     ]
     return hull()(*corners)
 
@@ -560,7 +568,7 @@ CARD_VER = "v1.2"
 TEXT_DEPTH = 0.4
 
 
-def rendercardholder(stackwidth, stackdepth, stackheight, count):
+def rendercardholder(stackwidth, stackdepth, stackheight, count, rows=1):
     """Render a card holder to be connected to a pair of clips
 
     stackwidth: The width of a card container section (dimension that runs away
@@ -568,7 +576,8 @@ def rendercardholder(stackwidth, stackdepth, stackheight, count):
     stackdepth: The depth of a card container section (dimension that runs parallel
                 to the edge of the table, same dimension as count)
     stackheight: The height of the container for the cards.
-    count:  The number of container sections, the same dimension as the stackdepth
+    count: The number of container sections, the same dimension as the stackdepth
+    rows: Number of rows of cards
     """
 
     FLOOR = 1.4
@@ -640,7 +649,7 @@ def rendercardholder(stackwidth, stackdepth, stackheight, count):
             )
         )
     )
-    configtxt = f"{stackwidth},{stackdepth},{stackheight},{count}"
+    configtxt = f"{stackwidth},{stackdepth},{stackheight},{count},{rows}"
     o -= translate([armlength / 2, totaldepth - CONNECTOR_WIDTH / 2, -0.1])(
         mirror([1, 0, 0])(
             linear_extrude(TEXT_DEPTH + 0.1)(
@@ -656,35 +665,42 @@ def rendercardholder(stackwidth, stackdepth, stackheight, count):
     )
 
     # Card holder
-    print(f"Card Cube Size:", stackwidth + WALL * 2, totaldepth, stackheight + FLOOR)
+    print(
+        f"Card Cube Size:",
+        rows * (stackwidth + WALL) + WALL,
+        totaldepth,
+        stackheight + FLOOR,
+    )
     print(
         f"Print Size:",
-        stackwidth + WALL * 2 + CONNECTOR_DEPTH + armlength,
+        rows * (stackwidth + WALL) + WALL + CONNECTOR_DEPTH + armlength,
         totaldepth,
         stackheight + FLOOR,
     )
     o += translate([armlength, 0, 0])(
-        roundedCube(stackwidth + WALL * 2, totaldepth, stackheight + FLOOR, R)
-    )
-    for i in range(1, count - 1, 1):
-        o -= translate([armlength + WALL, WALL + (WALL + stackdepth) * i, FLOOR])(
-            cube([stackwidth, stackdepth, stackheight * 2])
+        roundedCube(
+            rows * (stackwidth + WALL) + WALL, totaldepth, stackheight + FLOOR, R
         )
-    # special handling of the first and last cutouts to match the rounded corners
-    o -= translate([armlength + WALL, WALL, FLOOR])(
-        roundedCube(stackwidth, stackdepth - R, stackheight * 2, R)
     )
-    if count > 1:
-        o -= translate([armlength + WALL, WALL + R, FLOOR])(
-            cube([stackwidth, stackdepth - R, stackheight * 2])
-        )
-    o -= translate([armlength + WALL, totaldepth - WALL - stackdepth + R, FLOOR])(
-        roundedCube(stackwidth, stackdepth - R, stackheight * 2, R)
-    )
-    if count > 1:
-        o -= translate([armlength + WALL, totaldepth - WALL - stackdepth, FLOOR])(
-            cube([stackwidth, stackdepth - R, stackheight * 2])
-        )
+    for j in range(rows):
+        for i in range(count):
+            oo, xo, oy, xy = True, True, True, True
+            if i == 0 and j == 0:
+                oo = False
+            if i == 0 and j == rows - 1:
+                xo = False
+            if i == count - 1 and j == 0:
+                oy = False
+            if i == count - 1 and j == rows - 1:
+                xy = False
+
+            o -= translate(
+                [
+                    armlength + WALL + j * (stackwidth + WALL),
+                    WALL + (WALL + stackdepth) * i,
+                    FLOOR,
+                ]
+            )(roundedCube(stackwidth, stackdepth, stackheight * 2, R, oo, xo, oy, xy))
 
     return o
 
@@ -692,7 +708,9 @@ def rendercardholder(stackwidth, stackdepth, stackheight, count):
 def rendercardholders():
     specs = [
         # (71, 30, 40, 3),
-        (150, 200, 5, 1),
+        # (71, 30, 40, 4, 2),
+        # (150, 200, 5, 1),
+        (88, 30, int(120 * 0.4), 2, 1),
     ]
     for spec in specs:
         saveasscad(
@@ -745,7 +763,7 @@ def main():
     # rendercupholder()
     # renderwineglassholder()
     # renderrailclip()
-    # renderinsert()
+    renderinsert(cupdepth=85)
     # renderinsert(2, True)
     # for i in [2, 3, 4, 5, 6]:
     #     renderinsert(i)
@@ -754,7 +772,7 @@ def main():
     # renderinserttop()
     # rendertestconnectors()
 
-    rendercardholders()
+    # rendercardholders()
 
 
 def sin(angle):
